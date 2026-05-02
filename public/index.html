@@ -150,14 +150,20 @@
                   <span x-text="savingVote ? 'Saving...' : 'Submit Ranking'"></span>
                 </button>
                 <div class="spacer"></div>
-                <button class="btn btn-ghost" @click="goResults()">See Results →</button>
+                <div style="display:flex;gap:8px">
+                  <button class="btn btn-ghost" style="flex:1" @click="goResults('irv')">Results (IRV)</button>
+                  <button class="btn btn-ghost" style="flex:1" @click="goResults('points')">Results (Points)</button>
+                </div>
               </div>
             </template>
 
             <template x-if="otherDishes.length === 0">
               <div>
                 <div class="spacer"></div>
-                <button class="btn btn-ghost" @click="goResults()">See Results →</button>
+                <div style="display:flex;gap:8px">
+                  <button class="btn btn-ghost" style="flex:1" @click="goResults('irv')">Results (IRV)</button>
+                  <button class="btn btn-ghost" style="flex:1" @click="goResults('points')">Results (Points)</button>
+                </div>
               </div>
             </template>
           </div>
@@ -171,7 +177,7 @@
     <div>
       <div class="header">
         <button class="back-btn" @click="view = 'event'">← Back</button>
-        <h1 x-text="currentEvent?.name ?? 'Results'"></h1>
+        <h1 x-text="(currentEvent?.name ?? 'Results') + ' · ' + (results.mode === 'points' ? 'Points' : 'IRV')"></h1>
       </div>
       <div class="content">
         <template x-if="loadingResults">
@@ -198,11 +204,28 @@
                   x-text="rankEmoji(dish.rank)">
                 </div>
                 <div>
-                  <div class="result-dish" x-text="dish.dish_name"></div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div class="result-dish" x-text="dish.dish_name"></div>
+                    <span x-show="results.mode === 'points' && dish.tied"
+                      style="font-size:0.7rem;font-weight:700;background:var(--accent);color:#fff;padding:2px 6px;border-radius:4px">
+                      TIE
+                    </span>
+                  </div>
                   <div class="meta">
-                    <span x-text="'#' + dish.rank + ' place'"></span>
-                    &nbsp;·&nbsp;
-                    <span x-text="dish.ballot_count + ' vote' + (dish.ballot_count !== 1 ? 's' : '')"></span>
+                    <template x-if="results.mode === 'points'">
+                      <span>
+                        <span x-text="dish.points + ' pt' + (dish.points !== 1 ? 's' : '')"></span>
+                        &nbsp;·&nbsp;
+                        <span x-text="'#' + dish.rank + ' place'"></span>
+                      </span>
+                    </template>
+                    <template x-if="results.mode !== 'points'">
+                      <span>
+                        <span x-text="'#' + dish.rank + ' place'"></span>
+                        &nbsp;·&nbsp;
+                        <span x-text="dish.ballot_count + ' vote' + (dish.ballot_count !== 1 ? 's' : '')"></span>
+                      </span>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -432,12 +455,12 @@ function app() {
       }
     },
 
-    async goResults() {
+    async goResults(mode = 'irv') {
       this.loadingResults = true;
-      this.results = { dishes: [], partial_dishes: [], total_voters: 0, total_participants: 0, needs_revote: [] };
+      this.results = { dishes: [], partial_dishes: [], total_voters: 0, total_participants: 0, needs_revote: [], mode };
       this.view = 'results';
       try {
-        const res = await fetch(`/api/events/${this.currentEvent.id}/results`);
+        const res = await fetch(`/api/events/${this.currentEvent.id}/results?mode=${mode}`);
         this.results = await res.json();
       } finally {
         this.loadingResults = false;

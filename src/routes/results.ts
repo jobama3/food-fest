@@ -1,11 +1,13 @@
 import { Router, Request } from 'express';
 import db from '../db';
-import { runIRV } from '../irv';
+import { runIRV, IrvResult } from '../irv';
+import { scoreVotes, ScoringResult } from '../scoring';
 
 const router = Router({ mergeParams: true });
 
 router.get('/', (req: Request<{ id: string }>, res) => {
   const { id: event_id } = req.params;
+  const mode = req.query.mode === 'points' ? 'points' : 'irv';
 
   const event = db.prepare('SELECT id FROM events WHERE id = ?').get(event_id);
   if (!event) { res.status(404).json({ error: 'Event not found' }); return; }
@@ -38,15 +40,24 @@ router.get('/', (req: Request<{ id: string }>, res) => {
   }
 
   const allDishIds = participants.map(p => p.id);
-  const irvResults = runIRV(ballots, allDishIds);
+  const rawResults: (IrvResult | ScoringResult)[] = mode === 'points'
+    ? scoreVotes(ballots, allDishIds)
+    : runIRV(ballots, allDishIds);
 
   const dishMap = new Map(participants.map(p => [p.id, p.dish_name]));
-  const allDishes = irvResults.map(r => ({
-    rank: r.rank,
-    dish_name: dishMap.get(r.participantId) ?? 'Unknown',
-    participant_id: r.participantId,
-    ballot_count: ballotCountMap.get(r.participantId) ?? 0,
-  }));
+  const allDishes = rawResults.map(r => {
+    const base = {
+      rank: r.rank,
+      dish_name: dishMap.get(r.participantId) ?? 'Unknown',
+      participant_id: r.participantId,
+      ballot_count: ballotCountMap.get(r.participantId) ?? 0,
+    };
+    if (mode === 'points') {
+      const sr = r as ScoringResult;
+      return { ...base, points: sr.points, tied: sr.tied };
+    }
+    return base;
+  });
 
   // Split into fully-voted and partial dishes. If no one has voted yet
   // (maxBallotCount === 0), treat all as full so the empty-state still shows.
@@ -75,6 +86,7 @@ router.get('/', (req: Request<{ id: string }>, res) => {
     total_voters: voterIds.size,
     total_participants: participants.length,
     needs_revote: needsRevote,
+    mode,
   });
 });
 
