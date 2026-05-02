@@ -178,14 +178,14 @@
           <div class="empty"><p>Calculating results...</p></div>
         </template>
 
-        <template x-if="!loadingResults && results.dishes.length === 0">
+        <template x-if="!loadingResults && results.dishes.length === 0 && results.partial_dishes.length === 0">
           <div class="empty">
             <div style="font-size:2rem">🗳️</div>
             <p>No votes yet. Come back after everyone has ranked the dishes!</p>
           </div>
         </template>
 
-        <template x-if="!loadingResults && results.dishes.length > 0">
+        <template x-if="!loadingResults && (results.dishes.length > 0 || results.partial_dishes.length > 0)">
           <div>
             <p class="voter-count">
               <span x-text="results.total_voters"></span> of
@@ -199,8 +199,49 @@
                 </div>
                 <div>
                   <div class="result-dish" x-text="dish.dish_name"></div>
-                  <div class="meta" x-text="'#' + dish.rank + ' place'"></div>
+                  <div class="meta">
+                    <span x-text="'#' + dish.rank + ' place'"></span>
+                    &nbsp;·&nbsp;
+                    <span x-text="dish.ballot_count + ' vote' + (dish.ballot_count !== 1 ? 's' : '')"></span>
+                  </div>
                 </div>
+              </div>
+            </template>
+
+            <template x-if="results.partial_dishes.length > 0">
+              <div>
+                <div class="section-label" style="margin-top:24px">Not yet on all ballots</div>
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">
+                  These dishes were added after some participants voted. Re-vote to include them.
+                </p>
+                <template x-for="dish in results.partial_dishes" :key="dish.participant_id">
+                  <div class="result-item" style="opacity:0.6">
+                    <div class="result-rank">–</div>
+                    <div>
+                      <div class="result-dish" x-text="dish.dish_name"></div>
+                      <div class="meta">
+                        <span x-text="dish.ballot_count + ' vote' + (dish.ballot_count !== 1 ? 's' : '')"></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template x-if="results.needs_revote.length > 0">
+              <div>
+                <div class="section-label" style="margin-top:24px">Needs to vote or re-vote</div>
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">
+                  These participants' ballots are missing dishes.
+                </p>
+                <template x-for="p in results.needs_revote" :key="p.username">
+                  <div class="card">
+                    <div style="font-weight:500" x-text="p.username"></div>
+                    <div class="meta">
+                      Ranked <span x-text="p.dishes_ranked"></span> of <span x-text="p.total_other_dishes"></span> other dishes
+                    </div>
+                  </div>
+                </template>
               </div>
             </template>
           </div>
@@ -393,7 +434,7 @@ function app() {
 
     async goResults() {
       this.loadingResults = true;
-      this.results = { dishes: [], total_voters: 0, total_participants: 0 };
+      this.results = { dishes: [], partial_dishes: [], total_voters: 0, total_participants: 0, needs_revote: [] };
       this.view = 'results';
       try {
         const res = await fetch(`/api/events/${this.currentEvent.id}/results`);
