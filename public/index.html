@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Food Fest</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body>
+<div id="app" x-data="app()" x-cloak>
+
+  <!-- ===== HOME ===== -->
+  <template x-if="view === 'home'">
+    <div>
+      <div class="header">
+        <h1>🍽️ Food Fest</h1>
+        <button class="btn btn-primary" style="width:auto;padding:0 16px;min-height:38px;font-size:0.9rem"
+          @click="showNewEvent = !showNewEvent">
+          + New Event
+        </button>
+      </div>
+      <div class="content">
+        <template x-if="showNewEvent">
+          <div class="new-event-form">
+            <div class="field">
+              <label>Event Name</label>
+              <input type="text" x-model="newEventName" placeholder="e.g. Chili Cook-Off 2025"
+                @keydown.enter="createEvent">
+            </div>
+            <template x-if="homeError">
+              <div class="error-msg" x-text="homeError"></div>
+            </template>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" @click="createEvent" :disabled="creatingEvent">
+                <span x-text="creatingEvent ? 'Creating...' : 'Create Event'"></span>
+              </button>
+              <button class="btn btn-secondary" style="width:auto;padding:0 16px"
+                @click="showNewEvent=false;newEventName='';homeError=''">Cancel</button>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="events.length === 0 && !loadingEvents">
+          <div class="empty">
+            <div style="font-size:2.5rem">🥘</div>
+            <p>No events yet. Create one to get started!</p>
+          </div>
+        </template>
+
+        <template x-if="loadingEvents">
+          <div class="empty"><p>Loading events...</p></div>
+        </template>
+
+        <template x-for="event in events" :key="event.id">
+          <div class="card card-pressable" @click="openEvent(event.id)">
+            <div style="font-weight:600;font-size:1.05rem" x-text="event.name"></div>
+            <div class="meta">
+              <span x-text="formatDate(event.created_at)"></span>
+              &nbsp;·&nbsp;
+              <span x-text="event.participant_count + ' dish' + (event.participant_count !== 1 ? 'es' : '')"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <!-- ===== EVENT ===== -->
+  <template x-if="view === 'event'">
+    <div>
+      <div class="header">
+        <button class="back-btn" @click="goHome()">← Back</button>
+        <h1 x-text="currentEvent?.name ?? 'Event'"></h1>
+      </div>
+      <div class="content">
+
+        <!-- JOIN FORM -->
+        <template x-if="!myParticipant">
+          <div>
+            <p style="color:var(--text-muted);margin-bottom:16px">Join this event to vote on everyone's dishes.</p>
+            <div class="field">
+              <label>Your Name</label>
+              <input type="text" x-model="joinUsername" placeholder="e.g. Sarah" @keydown.enter="$refs.dishInput.focus()">
+            </div>
+            <div class="field">
+              <label>What dish did you bring?</label>
+              <input type="text" x-ref="dishInput" x-model="joinDish" placeholder="e.g. Grandma's Chili" @keydown.enter="joinEvent">
+            </div>
+            <template x-if="joinError">
+              <div class="error-msg" x-text="joinError"></div>
+            </template>
+            <button class="btn btn-primary" @click="joinEvent" :disabled="joiningEvent">
+              <span x-text="joiningEvent ? 'Joining...' : 'Join Event'"></span>
+            </button>
+          </div>
+        </template>
+
+        <!-- VOTING UI (after joined) -->
+        <template x-if="myParticipant">
+          <div>
+            <div class="dish-banner">
+              You brought: <strong x-text="myParticipant.dish_name"></strong>
+            </div>
+
+            <template x-if="otherDishes.length === 0">
+              <div class="empty">
+                <div style="font-size:2rem">⏳</div>
+                <p>No other dishes yet. Share the event link so others can join!</p>
+              </div>
+            </template>
+
+            <template x-if="otherDishes.length > 0">
+              <div>
+                <template x-if="voteSaved">
+                  <div class="toast">✓ Your ranking was saved!</div>
+                </template>
+
+                <div class="section-label">Your Ranking</div>
+                <template x-if="rankedDishes.length === 0">
+                  <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:12px">
+                    Tap a dish below to rank it.
+                  </p>
+                </template>
+                <template x-for="(dish, idx) in rankedDishes" :key="dish.id">
+                  <div class="rank-item">
+                    <div class="rank-num" x-text="idx + 1"></div>
+                    <div class="rank-dish" x-text="dish.dish_name"></div>
+                    <div class="rank-actions">
+                      <button class="icon-btn" :disabled="idx === 0" @click="moveUp(idx)" title="Move up">↑</button>
+                      <button class="icon-btn" :disabled="idx === rankedDishes.length - 1" @click="moveDown(idx)" title="Move down">↓</button>
+                      <button class="icon-btn remove" @click="unrank(idx)" title="Remove">✕</button>
+                    </div>
+                  </div>
+                </template>
+
+                <div class="section-label" x-show="unrankedDishes.length > 0">Unranked (tap to add)</div>
+                <template x-for="dish in unrankedDishes" :key="dish.id">
+                  <div class="unranked-item" @click="rankDish(dish)">
+                    <div class="unranked-dish" x-text="dish.dish_name"></div>
+                    <div class="unranked-hint">tap to rank</div>
+                  </div>
+                </template>
+
+                <div class="spacer"></div>
+                <template x-if="voteError">
+                  <div class="error-msg" x-text="voteError"></div>
+                </template>
+                <button class="btn btn-primary" @click="submitVote" :disabled="savingVote || rankedDishes.length === 0">
+                  <span x-text="savingVote ? 'Saving...' : 'Submit Ranking'"></span>
+                </button>
+                <div class="spacer"></div>
+                <button class="btn btn-ghost" @click="goResults()">See Results →</button>
+              </div>
+            </template>
+
+            <template x-if="otherDishes.length === 0">
+              <div>
+                <div class="spacer"></div>
+                <button class="btn btn-ghost" @click="goResults()">See Results →</button>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <!-- ===== RESULTS ===== -->
+  <template x-if="view === 'results'">
+    <div>
+      <div class="header">
+        <button class="back-btn" @click="view = 'event'">← Back</button>
+        <h1 x-text="currentEvent?.name ?? 'Results'"></h1>
+      </div>
+      <div class="content">
+        <template x-if="loadingResults">
+          <div class="empty"><p>Calculating results...</p></div>
+        </template>
+
+        <template x-if="!loadingResults && results.dishes.length === 0">
+          <div class="empty">
+            <div style="font-size:2rem">🗳️</div>
+            <p>No votes yet. Come back after everyone has ranked the dishes!</p>
+          </div>
+        </template>
+
+        <template x-if="!loadingResults && results.dishes.length > 0">
+          <div>
+            <p class="voter-count">
+              <span x-text="results.total_voters"></span> of
+              <span x-text="results.total_participants"></span> participants voted
+            </p>
+            <template x-for="dish in results.dishes" :key="dish.participant_id">
+              <div class="result-item">
+                <div class="result-rank"
+                  :class="dish.rank === 1 ? 'gold' : dish.rank === 2 ? 'silver' : dish.rank === 3 ? 'bronze' : ''"
+                  x-text="rankEmoji(dish.rank)">
+                </div>
+                <div>
+                  <div class="result-dish" x-text="dish.dish_name"></div>
+                  <div class="meta" x-text="'#' + dish.rank + ' place'"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+</div>
+
+<script>
+function app() {
+  return {
+    view: 'home',
+    events: [],
+    loadingEvents: true,
+    showNewEvent: false,
+    newEventName: '',
+    homeError: '',
+    creatingEvent: false,
+
+    currentEvent: null,
+    myParticipant: null,
+    otherDishes: [],
+    rankedDishes: [],
+
+    joinUsername: '',
+    joinDish: '',
+    joinError: '',
+    joiningEvent: false,
+
+    voteSaved: false,
+    voteError: '',
+    savingVote: false,
+
+    results: { dishes: [], total_voters: 0, total_participants: 0 },
+    loadingResults: false,
+
+    get unrankedDishes() {
+      const rankedIds = new Set(this.rankedDishes.map(d => d.id));
+      return this.otherDishes.filter(d => !rankedIds.has(d.id));
+    },
+
+    async init() {
+      await this.loadEvents();
+    },
+
+    async loadEvents() {
+      this.loadingEvents = true;
+      try {
+        const res = await fetch('/api/events');
+        this.events = await res.json();
+      } finally {
+        this.loadingEvents = false;
+      }
+    },
+
+    async createEvent() {
+      if (!this.newEventName.trim()) { this.homeError = 'Please enter an event name.'; return; }
+      this.creatingEvent = true;
+      this.homeError = '';
+      try {
+        const res = await fetch('/api/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: this.newEventName.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) { this.homeError = data.error; return; }
+        this.newEventName = '';
+        this.showNewEvent = false;
+        await this.loadEvents();
+        this.openEvent(data.id);
+      } finally {
+        this.creatingEvent = false;
+      }
+    },
+
+    async openEvent(id) {
+      const res = await fetch(`/api/events/${id}`);
+      this.currentEvent = await res.json();
+
+      // Restore session from localStorage
+      const stored = localStorage.getItem(`participant_${id}`);
+      this.myParticipant = stored ? JSON.parse(stored) : null;
+
+      this.joinUsername = '';
+      this.joinDish = '';
+      this.joinError = '';
+      this.voteSaved = false;
+      this.voteError = '';
+      this.rankedDishes = [];
+
+      if (this.myParticipant) {
+        await this.loadDishes();
+        await this.loadMyVotes();
+      }
+
+      this.view = 'event';
+    },
+
+    async loadDishes() {
+      const id = this.currentEvent.id;
+      const viewerId = this.myParticipant?.id ?? '';
+      const res = await fetch(`/api/events/${id}/participants?viewer_participant_id=${viewerId}`);
+      const all = await res.json();
+      this.otherDishes = all.filter(d => d.id !== this.myParticipant?.id);
+    },
+
+    async loadMyVotes() {
+      if (!this.myParticipant) return;
+      const { id } = this.currentEvent;
+      const pid = this.myParticipant.id;
+      const res = await fetch(`/api/events/${id}/votes/${pid}`);
+      const data = await res.json();
+      if (data.rankings && data.rankings.length > 0) {
+        const dishMap = new Map(this.otherDishes.map(d => [d.id, d]));
+        this.rankedDishes = data.rankings
+          .map(id => dishMap.get(id))
+          .filter(Boolean);
+      }
+    },
+
+    async joinEvent() {
+      if (!this.joinUsername.trim()) { this.joinError = 'Please enter your name.'; return; }
+      if (!this.joinDish.trim()) { this.joinError = 'Please enter your dish name.'; return; }
+      this.joiningEvent = true;
+      this.joinError = '';
+      try {
+        const res = await fetch(`/api/events/${this.currentEvent.id}/participants/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: this.joinUsername.trim(), dish_name: this.joinDish.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) { this.joinError = data.error; return; }
+        this.myParticipant = data;
+        localStorage.setItem(`participant_${this.currentEvent.id}`, JSON.stringify(data));
+        await this.loadDishes();
+        await this.loadEvents();
+      } finally {
+        this.joiningEvent = false;
+      }
+    },
+
+    rankDish(dish) {
+      this.rankedDishes.push(dish);
+      this.voteSaved = false;
+    },
+
+    unrank(idx) {
+      this.rankedDishes.splice(idx, 1);
+      this.voteSaved = false;
+    },
+
+    moveUp(idx) {
+      if (idx === 0) return;
+      [this.rankedDishes[idx - 1], this.rankedDishes[idx]] =
+        [this.rankedDishes[idx], this.rankedDishes[idx - 1]];
+      this.rankedDishes = [...this.rankedDishes];
+      this.voteSaved = false;
+    },
+
+    moveDown(idx) {
+      if (idx === this.rankedDishes.length - 1) return;
+      [this.rankedDishes[idx + 1], this.rankedDishes[idx]] =
+        [this.rankedDishes[idx], this.rankedDishes[idx + 1]];
+      this.rankedDishes = [...this.rankedDishes];
+      this.voteSaved = false;
+    },
+
+    async submitVote() {
+      if (this.rankedDishes.length === 0) return;
+      this.savingVote = true;
+      this.voteError = '';
+      try {
+        const pid = this.myParticipant.id;
+        const res = await fetch(`/api/events/${this.currentEvent.id}/votes/${pid}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rankings: this.rankedDishes.map(d => d.id) }),
+        });
+        const data = await res.json();
+        if (!res.ok) { this.voteError = data.error; return; }
+        this.voteSaved = true;
+      } finally {
+        this.savingVote = false;
+      }
+    },
+
+    async goResults() {
+      this.loadingResults = true;
+      this.results = { dishes: [], total_voters: 0, total_participants: 0 };
+      this.view = 'results';
+      try {
+        const res = await fetch(`/api/events/${this.currentEvent.id}/results`);
+        this.results = await res.json();
+      } finally {
+        this.loadingResults = false;
+      }
+    },
+
+    goHome() {
+      this.view = 'home';
+      this.loadEvents();
+    },
+
+    formatDate(dt) {
+      return new Date(dt + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    },
+
+    rankEmoji(rank) {
+      if (rank === 1) return '🥇';
+      if (rank === 2) return '🥈';
+      if (rank === 3) return '🥉';
+      return '#' + rank;
+    },
+  };
+}
+</script>
+</body>
+</html>
